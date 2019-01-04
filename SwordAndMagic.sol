@@ -1,16 +1,68 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.4.23;
 
-contract SwordAndMagic {
+contract SAMEvents 
+{
+    event onRegister
+    (
+        uint256 indexed pID,
+        address pAddr,
+        string  name,
+        uint256 affID,
+        uint256 ts
+    );
+    event onAttack
+    (
+        uint256 indexed rID,
+        uint256 indexed pID,
+        address pAddr,
+        uint256 affID,
+        uint256 p_type,
+        uint256 eth,
+        uint256 level,     
+        uint256 hurt,       
+        uint256 ts
+    );
+    event onSearch 
+    (
+        uint256 indexed rID,
+        uint256 indexed pID,
+        address pAddr,
+        uint256 amount,
+        uint256 ts
+    );
+    event onTransfer
+    (
+        uint256 indexed pID,
+        uint256 p_type,
+        uint256 ts
+    );
+    event onWin
+    (
+        uint256 indexed rID,
+        uint256 indexed pID,
+        uint256 win,
+        uint256 ts 
+    );
+    event onNewRound
+    (
+        uint256 indexed rID,
+        uint256 blood,
+        uint256 pot,
+        uint256 pot2,
+        uint256 ts
+    );
+}
+
+contract SwordAndMagic is SAMEvents{
     using SafeMath for *;
     using NameFilter for string;
 
     address public ga_CEO;
-    uint256 public hurtRate = 1 ;
     uint256[3] internal glu_BaseHurt = [];
     uint256[3] internal glu_LvlAdd = [];
     uint256[130] internal glu_LvlExp = [] ;
     
-    uint256 public gu_RID; 
+    uint256 public gu_RID;
     uint256 public gu_LastPID;
 
     mapping (address => uint256) public gd_Addr2PID;
@@ -28,29 +80,19 @@ contract SwordAndMagic {
         ga_CEO = msg.sender;
 	}
 
-    modifier IsPlayer() {
-        address addr = msg.sender;
-        uint256 codeLen;
-        
-        assembly {codeLen := extcodesize(addr)}
-        require(codeLen == 0, "Not Human");
-        _;
-    }
-
     modifier CheckEthRange(uint256 eth) {
-        require(eth >= 100000000000000 && eth <= 10000000000000000000, 
+        require(eth >= 10000000 && eth <= 100000000000000, 
                 "Out of Range");
         _;    
     }
 
     modifier CheckEthRange2(uint256 eth) {
-        require(eth >= 50000000000000000 && eth <= 500000000000000000, 
+        require(eth >= 80000000 && eth <= 10000000000, 
                 "Out of Range");
         _;    
     }
 
     function ModCEO(address newCEO) 
-        IsPlayer() 
         public
     {
         require(address(0) != newCEO, "CEO Can not be 0");
@@ -62,6 +104,10 @@ contract SwordAndMagic {
         internal
         returns(uint256)
     {
+        if (gd_Player[pID].laff > 0)
+        {
+            return gd_Player[pID].laff;
+        }
         uint256 aID;
         bytes32 name = affName.nameFilter() ;
         if (name != '' && name != gd_Player[pID].name)
@@ -72,10 +118,7 @@ contract SwordAndMagic {
         } else if (affAddr != address(0) && affAddr != msg.sender)
         {
             aID = gd_Addr2PID[affAddr];
-        } else 
-        {
-            aID = gd_Player[pID].laff;
-        }
+        } 
         if (gd_Player[pID].laff != aID) 
         {
             gd_Player[pID].laff = aID;
@@ -83,19 +126,18 @@ contract SwordAndMagic {
         return (aID) ;
     }
 
-    function OnAttack(uint256 eth, string affName, uint256 affID, address affAddr)
-        IsPlayer()
+    function OnAttack(uint256 eth, string affName, uint256 affID, address affAddr, uint256 p_type)
         CheckEthRange(eth.add(msg.value))
         public
         payable
     {
         uint256 pID = GetPIDXAddr(msg.sender);
+        require((p_type == 0 || (gd_Player[pID].p_type & p_type) != 0), "Invalid PType");
         uint256 aID = GetAffID(pID, affName, affID, affAddr);
-        Attack(pID, aID, eth);
+        Attack(pID, aID, eth, p_type);
     }
 
     function OnSearch()
-        IsPlayer()
         CheckEthRange2(msg.value)
         public
         payable
@@ -146,7 +188,6 @@ contract SwordAndMagic {
     }
 
     function Withdraw()
-        IsPlayer()
         public
     {
         uint256 pID = gd_Addr2PID[msg.sender];
@@ -162,7 +203,6 @@ contract SwordAndMagic {
     }
 
     function CheckName(string nameStr)
-        IsPlayer()
         public
         view 
         returns(bool)
@@ -183,12 +223,13 @@ contract SwordAndMagic {
         gd_RndData[gu_RID].strt = now;
         gd_RndData[gu_RID].end = now + 86400;
         gd_RndData[gu_RID].state = 1;
-        gd_RndData[gu_RID].blood = ((3000000).add(((mainRID).mul(2000000)))).mul(1000000000000000000);
+        gd_RndData[gu_RID].blood = ((3000000).add(((mainRID).mul(2000000)))).mul(1000000);
         gd_RndData[gu_RID].orig_blood = gd_RndData[gu_RID].blood;
         if (mainRID > 0) {
             gd_RndData[gu_RID].pot = gd_RndData[oldRID].pot;
             gd_RndData[gu_RID].pot2 = gd_RndData[oldRID].pot2;
         }
+        emit SAMEvents.onNewRound(gu_RID, gd_RndData[gu_RID].blood, gd_RndData[gu_RID].pot, gd_RndData[gu_RID].pot2, now);
     }
 
     function TryActiveGame(uint256 pID)
@@ -202,13 +243,12 @@ contract SwordAndMagic {
         }
         return (false);
     }
-  
+    
     function RegisterName(string nameStr, string affName, uint256 affID, address affAddr)
-        IsPlayer()
         public
         payable
     {
-        require(msg.value >= 10 finney, "Lack of ETH");
+        require(msg.value >= 20000000, "Lack of ETH");
         ga_CEO.transfer(msg.value);
         bytes32 name = nameStr.nameFilter();
         require(gd_Name2PID[name] == 0, "Name Already Exist");
@@ -221,44 +261,38 @@ contract SwordAndMagic {
         gd_Player[pID].name = name;
         gd_Player[pID].laff = aID;
         gd_Name2PID[name] = pID;
-
+        emit SAMEvents.onRegister(pID, msg.sender, nameStr, aID, now);
         if(!TryActiveGame(pID))
         {
             CheckGameState();
+            if (aID > 0 && gd_RndData[gu_RID].state == 1)
+            {
+                affAttack(aID);
+            }
         }
     }
+	
+	function OnLogin()
+	public
+	{
+		GetPIDXAddr(msg.sender);
+	}
 
     modifier CheckType(uint256 u_type) {
-        require(u_type >= 0 && u_type <= 2, "Not Valid!"); 
+        require(u_type >= 1 && u_type <= 2, "Not Valid!"); 
         _;
     }
 
     function UpgradeXPay(uint256 u_type)
-        IsPlayer()
         CheckType(u_type)
         public
         payable
     {
         uint256 pID = GetPIDXAddr(msg.sender);
-        require(msg.value >= 10 finney, "Lack of ETH");
-        gd_Player[pID].p_type = u_type;
+        require(msg.value >= 50000000, "Lack of ETH");
+        gd_Player[pID].p_type |= u_type;
         ga_CEO.transfer(msg.value);
-        CheckGameState();
-    }
-
-    function GetAttackPrice()
-        public 
-        view 
-        returns(uint256)
-    {  
-        if (gd_RndData[gu_RID].plyr != 0 && gd_RndData[gu_RID].state != 3)
-        {
-            return (CalcEthXKey((gd_RndData[gu_RID].keys2.add(1000000000000000000)), 1000000000000000000) );
-        }
-        else 
-        {
-            return ( 100000000000000 );
-        }
+        emit SAMEvents.onTransfer(pID, u_type, now);
     }
     
     function GetLeftTime()
@@ -292,7 +326,7 @@ contract SwordAndMagic {
             gd_RndData[rID].keys2
         );
     }
-    
+
     function GetLastSearchInfo()
         public
         view
@@ -320,7 +354,7 @@ contract SwordAndMagic {
             pID,
             gd_Player[pID].name,
             gd_Player[pID].win.add(unmask),
-            gd_Player[pID].p_type,
+            gd_Player[pID].p_type, 
             gd_PlyrRnd[pID][gu_RID].rank,
             gd_PlyrRnd[pID][gu_RID].keys,
             gd_PlyrRnd[pID][gu_RID].eth,
@@ -329,18 +363,6 @@ contract SwordAndMagic {
             gd_PlyrRnd[pID][gu_RID].hurts,
             gd_SearchData[gu_RID].d_Eths[pID]
         );
-    }
-
-    function GetPlayerBalance(address addr)
-        public
-        view
-        returns (uint256)
-    {
-        if (addr == address(0))
-        {
-            addr == msg.sender;
-        }
-        return (addr.balance);
     }
 
     function GetRoundRank(uint256 rID, uint256 rank)
@@ -366,7 +388,7 @@ contract SwordAndMagic {
         return GetRoundRank(gu_RID, rank);
     }
 
-    function Attack(uint256 pID, uint256 affID, uint256 eth)
+    function Attack(uint256 pID, uint256 affID, uint256 eth, uint256 p_type)
         private
     {
         CheckGameState();
@@ -374,7 +396,7 @@ contract SwordAndMagic {
         if (gd_RndData[gu_RID].state == 1)
         {
             gd_Player[pID].win = gd_Player[pID].win.sub(eth);
-            AttackCore(pID, affID, eth.add(msg.value));    
+            AttackCore(pID, affID, eth.add(msg.value), p_type);    
         } 
         else 
         {   
@@ -395,12 +417,13 @@ contract SwordAndMagic {
                 gd_SearchData[gu_RID].p_cnt ++ ;
             }
             uint256 eth_now = msg.value ;
-            if (eth_in.add(eth_now) > 500000000000000000) {
-                eth_now = 500000000000000000-eth_in;
+            if (eth_in.add(eth_now) > 8888000000) {
+                eth_now = 8888000000-eth_in;
                 gd_Player[pID].win = gd_Player[pID].win.add(msg.value.sub(eth_now));
             }
             gd_SearchData[gu_RID].d_Eths[pID] = eth_now.add(gd_SearchData[gu_RID].d_Eths[pID]) ;
             gd_PlyrRnd[pID][gu_RID].eth = eth_now.add(gd_PlyrRnd[pID][gu_RID].eth);
+
             uint256 pot2 = eth_now.mul(60)/100;
             gd_RndData[gu_RID].pot2 = gd_RndData[gu_RID].pot2.add(pot2);
             uint256 pot = eth_now.mul(35)/100;
@@ -408,6 +431,7 @@ contract SwordAndMagic {
             uint256 comfee = eth_now.sub(pot).sub(pot2);
             ga_CEO.transfer(comfee);
             gd_SearchData[gu_RID].pot = gd_SearchData[gu_RID].pot.add(eth_now);
+            emit SAMEvents.onSearch(gu_RID, pID, msg.sender, eth_now, now);
         }else{
             gd_Player[pID].win = gd_Player[pID].win.add(msg.value);
         }
@@ -509,13 +533,46 @@ contract SwordAndMagic {
         }
     }
 
-    function AttackCore(uint256 pID, uint256 affID, uint256 eth)
+    function affAttack(uint256 pID)
         private
     {
-        if (eth > 1000000000) 
+        uint256 keys = 5000000;
+        uint256 hurt = (keys).mul((glu_BaseHurt[0]+gd_PlyrRnd[pID][gu_RID].level.mul(glu_LvlAdd[0])));
+
+        uint256 exp = hurt/1000000;
+        gd_PlyrRnd[pID][gu_RID].exp = gd_PlyrRnd[pID][gu_RID].exp.add(exp);
+        UpdLevel(pID);
+        
+        gd_PlyrRnd[pID][gu_RID].keys = keys.add(gd_PlyrRnd[pID][gu_RID].keys);
+        gd_PlyrRnd[pID][gu_RID].hurts = hurt.add(gd_PlyrRnd[pID][gu_RID].hurts);
+        UpdRankXExp(pID);
+
+        gd_RndData[gu_RID].keys = keys.add(gd_RndData[gu_RID].keys);
+        gd_RndData[gu_RID].keys2 = keys.add(gd_RndData[gu_RID].keys2);
+        gd_RndData[gu_RID].hurts = hurt.add(gd_RndData[gu_RID].hurts);
+
+        
+        exp = gd_PlyrRnd[pID][gu_RID].level;
+        emit SAMEvents.onAttack(gu_RID, pID, gd_Player[pID].addr, 0, 0, 0, exp, hurt, now);
+
+
+        if (hurt < gd_RndData[gu_RID].blood)
+        {
+            gd_RndData[gu_RID].blood = gd_RndData[gu_RID].blood.sub(hurt);
+        }
+        else
+        {
+            EndRound();
+        }
+    }
+
+    function AttackCore(uint256 pID, uint256 affID, uint256 eth, uint256 p_type)
+        private
+    {
+        if (eth >= 20000000) 
         {
             uint256 keys = CalcKeyXEth((gd_RndData[gu_RID].eth), eth);
-            if (keys >= 1000000000000000000)
+            if (keys >= 1000000)
             {
                 if (gd_RndData[gu_RID].plyr != pID)
                 {
@@ -527,10 +584,10 @@ contract SwordAndMagic {
 
             uint256 gen ;
             uint256 pot ;
-            if (gd_Player[pID].p_type == 0) {
+            if (p_type == 0) {
                 gen = eth.mul(58)/100;
                 pot = eth/10;
-            }else if(gd_Player[pID].p_type == 1){
+            }else if(p_type == 1){
                 gen = eth.mul(45)/100;
                 pot = eth.mul(8)/100;
             }else {
@@ -548,11 +605,9 @@ contract SwordAndMagic {
                 pot = pot.sub(affFee);
             }
 
-            uint256 hurt = (keys).mul((glu_BaseHurt[gd_Player[pID].p_type]+gd_PlyrRnd[pID][gu_RID].level.mul(glu_LvlAdd[gd_Player[pID].p_type])));
-            if (hurtRate > 1){
-                hurt = hurt.mul(hurtRate) ;
-            }
-            uint256 exp = hurt/10000000000000000000;
+            uint256 hurt = (keys).mul((glu_BaseHurt[p_type]+gd_PlyrRnd[pID][gu_RID].level.mul(glu_LvlAdd[p_type])));
+
+            uint256 exp = hurt/1000000;
             gd_PlyrRnd[pID][gu_RID].exp = gd_PlyrRnd[pID][gu_RID].exp.add(exp);
             UpdLevel(pID);
             
@@ -560,16 +615,17 @@ contract SwordAndMagic {
             gd_PlyrRnd[pID][gu_RID].eth = eth.add(gd_PlyrRnd[pID][gu_RID].eth);
             gd_PlyrRnd[pID][gu_RID].hurts = hurt.add(gd_PlyrRnd[pID][gu_RID].hurts);
             UpdRankXExp(pID);
-			
+
             gd_RndData[gu_RID].eth = eth.add(gd_RndData[gu_RID].eth);
             
             gd_RndData[gu_RID].keys = keys.add(gd_RndData[gu_RID].keys);
             gd_RndData[gu_RID].keys2 = keys.add(gd_RndData[gu_RID].keys2);
             gd_RndData[gu_RID].hurts = hurt.add(gd_RndData[gu_RID].hurts);
-            uint256 dust = UpdateMask(gu_RID, pID, gen, hurt);
-            gd_RndData[gu_RID].pot = pot.add(dust).add(gd_RndData[gu_RID].pot);
+            gd_RndData[gu_RID].pot = pot.add(gd_RndData[gu_RID].pot);
             
-            
+            exp = gd_PlyrRnd[pID][gu_RID].level;
+            emit SAMEvents.onAttack(gu_RID, pID, msg.sender, affID, p_type, eth, exp, hurt, now);
+           
             if (hurt < gd_RndData[gu_RID].blood)
             {
                 gd_RndData[gu_RID].blood = gd_RndData[gu_RID].blood.sub(hurt);
@@ -649,15 +705,15 @@ contract SwordAndMagic {
         {
             if (gd_PlyrRnd[rPID][gu_RID].level >= 98)
             {
-                hurts = 1000000000000000000000000;
+                hurts = 1000000000000;
             }
             else if(gd_PlyrRnd[rPID][gu_RID].level >= 59)
             {
-                hurts = 200000000000000000000000;
+                hurts = 200000000000;
             }
             else if(gd_PlyrRnd[rPID][gu_RID].level >= 29)
             {
-                hurts = 100000000000000000000000 ;
+                hurts = 100000000000 ;
                 
             }
         }
@@ -665,18 +721,18 @@ contract SwordAndMagic {
         {
             if(gd_PlyrRnd[rPID][gu_RID].level >= 59)
             {
-                hurts = 200000000000000000000000;
+                hurts = 200000000000;
             }
             else if(gd_PlyrRnd[rPID][gu_RID].level >= 29)
             {
-                hurts = 100000000000000000000000;
+                hurts = 100000000000;
             }
         }
         else 
         {
             if(gd_PlyrRnd[rPID][gu_RID].level >= 29)
             {
-                hurts = 100000000000000000000000;
+                hurts = 100000000000;
             }
         }
         if (hurts > 0)
@@ -690,7 +746,7 @@ contract SwordAndMagic {
         private
     {
         uint256 lastPID = gd_RndData[gu_RID].plyr;
-        gd_RndData[gu_RID].state = 3;
+        gd_RndData[gu_RID].state = 3; 
         gd_RndData[gu_RID].strt = now;
         gd_RndData[gu_RID].end = now+1800;
         
@@ -723,7 +779,7 @@ contract SwordAndMagic {
         else{
             lastGen = gd_RndData[gu_RID].pot.mul(80)/100;
         }
-        uint256 ppt = lastGen.mul(1000000000000000000)/gd_RndData[gu_RID].hurts;
+        uint256 ppt = lastGen.mul(1000000)/gd_RndData[gu_RID].hurts;
         uint256 pearn = 0 ;
         uint256 tPID = 0;
         for(i = 1 ; i < 10 ; i ++)
@@ -733,12 +789,12 @@ contract SwordAndMagic {
                 break;
             }
             tPID = gd_RndRankPlyr[gu_RID][i].pID ;
-            pearn = ppt.mul(gd_PlyrRnd[tPID][gu_RID].hurts2)/(1000000000000000000);
+            pearn = ppt.mul(gd_PlyrRnd[tPID][gu_RID].hurts2)/(1000000);
         }
         if (!isLastInRank) {
-            pearn = ppt.mul(gd_PlyrRnd[lastPID][gu_RID].hurts2)/(1000000000000000000);
+            pearn = ppt.mul(gd_PlyrRnd[lastPID][gu_RID].hurts2)/(1000000);
         }
-        uint256 dust = lastGen.sub((ppt.mul(gd_RndData[gu_RID].hurts)) / (1000000000000000000)) ;
+        uint256 dust = lastGen.sub((ppt.mul(gd_RndData[gu_RID].hurts)) / (1000000)) ;
         gd_RndData[gu_RID].pot = (gd_RndData[gu_RID].pot.add(dust)).sub(lastGen);
     }
 
@@ -751,8 +807,8 @@ contract SwordAndMagic {
         if (gd_RndData[gu_RID].hurts > 0)
         {
             uint256 lastGen = gd_RndData[gu_RID].pot.mul(30)/100;
-            uint256 ppt = lastGen.mul(1000000000000000000)/gd_RndData[gu_RID].hurts;
-            uint256 dust = lastGen.sub((ppt.mul(gd_RndData[gu_RID].hurts)) / 1000000000000000000);
+            uint256 ppt = lastGen.mul(1000000)/gd_RndData[gu_RID].hurts;
+            uint256 dust = lastGen.sub((ppt.mul(gd_RndData[gu_RID].hurts)) / 1000000);
             gd_RndData[gu_RID].pot = (gd_RndData[gu_RID].pot.add(dust)).sub(lastGen);
         }
     }
@@ -763,16 +819,15 @@ contract SwordAndMagic {
         uint256 addBlood = 0;
         if (gd_SearchData[gu_RID].pot > 0)
         {
-            if (gd_SearchData[gu_RID].pot <= 500000000000000000)
+            if (gd_SearchData[gu_RID].pot <= 1000000000)
             {
                 addBlood = (gd_RndData[gu_RID].orig_blood.sub(gd_RndData[gu_RID].blood)).mul(70)/100;
-            } else if(gd_SearchData[gu_RID].pot <= 1000000000000000000) {
+            } else if(gd_SearchData[gu_RID].pot <= 5000000000) {
                 addBlood = (gd_RndData[gu_RID].orig_blood.sub(gd_RndData[gu_RID].blood)).mul(40)/100;
-            } else if(gd_SearchData[gu_RID].pot <= 5000000000000000000)
+            } else if(gd_SearchData[gu_RID].pot <= 20000000000)
             {
                 addBlood = (gd_RndData[gu_RID].orig_blood.sub(gd_RndData[gu_RID].blood))/10;
             }
-
             uint i = 0 ; 
             uint pID = 0 ;
             uint t_weight = 0;
@@ -780,10 +835,10 @@ contract SwordAndMagic {
             for( i = 0 ; i < gd_SearchData[gu_RID].p_cnt ; i ++)
             {
                 pID = gd_SearchData[gu_RID].d_PIDs[i] ;
-                gd_SearchData[gu_RID].d_Weight[pID] = gd_SearchData[gu_RID].d_Eths[pID]/500000000000000 ;
+                gd_SearchData[gu_RID].d_Weight[pID] = gd_SearchData[gu_RID].d_Eths[pID]/1000000 ;
                 t_weight = t_weight.add(gd_SearchData[gu_RID].d_Weight[pID]) ;
             }
-            uint mul_rate = 1000000000000000000/t_weight;
+            uint mul_rate = 1000000000000/t_weight;
             uint256 seed = uint256(keccak256(abi.encodePacked(
                 (block.timestamp).add
                 (block.difficulty).add
@@ -792,7 +847,7 @@ contract SwordAndMagic {
                 ((uint256(keccak256(abi.encodePacked(msg.sender)))) / (now)).add
                 (block.number)
                 )));
-            uint256 randv = seed % 1000000000000000000 ;
+            uint256 randv = seed % 1000000000000 ;
             for ( i = 0 ; i < gd_SearchData[gu_RID].p_cnt ; i ++)
             {
                 pID = gd_SearchData[gu_RID].d_PIDs[i] ;
@@ -804,6 +859,7 @@ contract SwordAndMagic {
             } 
             gd_SearchData[gu_RID].plyr = pID ;
             uint256 potwin = gd_RndData[gu_RID].pot2.mul(60)/100 ;
+            emit SAMEvents.onWin(gu_RID, pID, potwin, now);
             gd_Player[pID].win = gd_Player[pID].win.add(potwin) ;
             gd_PlyrRnd[pID][gu_RID].win = potwin.add(gd_PlyrRnd[pID][gu_RID].win) ;
             uint256 gen2 = gd_RndData[gu_RID].pot2.sub(potwin) ;
@@ -830,12 +886,6 @@ contract SwordAndMagic {
         gd_RndData[gu_RID].eth = gd_RndData[oldRID].eth ;
         gd_RndData[gu_RID].pot = gd_RndData[oldRID].pot ;
         gd_RndData[gu_RID].pot2 = gd_RndData[oldRID].pot2 ;
-        /*
-        for( i = 1 ; i <= 10 ; i ++){
-            gd_RndRankPlyr[gu_RID][i].pID = gd_RndRankPlyr[oldRID][i].pID ;
-            gd_RndRankPlyr[gu_RID][i].hurt = gd_RndRankPlyr[oldRID][i].hurt;
-        }
-        */
     }
 }
 
@@ -851,7 +901,7 @@ library SAMdatasets {
     struct PlayerRounds {
         uint256 eth;
         uint256 win;
-        uint256 keys;
+        uint256 keys; 
         uint256 hurts;
         uint256 hurts2;
         uint256 level;
